@@ -5,14 +5,14 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckedTextView
-import com.imaginadesarrollo.universalhrm.manager.HRDeviceRef
+import com.polidea.rxandroidble2.RxBleDevice
 
 /**
  * Created by kike on 19/08/2018.
  */
 class DeviceAdapter(val callback: OnDeviceSelected): RecyclerView.Adapter<DeviceAdapter.DeviceViewHolder>() {
 
-    private val deviceList = mutableListOf<HRDeviceRef>()
+    private val deviceList = mutableListOf<RxBleDevice>()
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DeviceViewHolder =
         DeviceViewHolder(LayoutInflater.from(parent.context).inflate(android.R.layout.simple_list_item_single_choice, parent, false))
@@ -23,8 +23,8 @@ class DeviceAdapter(val callback: OnDeviceSelected): RecyclerView.Adapter<Device
         holder.bind(deviceList[position])
     }
 
-    fun addDevice(device: HRDeviceRef) {
-        deviceList.add(device)
+    fun addDevice(device: RxBleDevice) {
+        if(!deviceList.contains(device)) deviceList.add(device)
         notifyDataSetChanged()
     }
 
@@ -33,7 +33,7 @@ class DeviceAdapter(val callback: OnDeviceSelected): RecyclerView.Adapter<Device
     }
 
     inner class DeviceViewHolder(itemView: View): RecyclerView.ViewHolder(itemView) {
-        fun bind(item: HRDeviceRef) = with(itemView){
+        fun bind(item: RxBleDevice) = with(itemView){
             (itemView as? CheckedTextView)?.apply {
                 tag = item
                 text = item.name
@@ -47,6 +47,6 @@ class DeviceAdapter(val callback: OnDeviceSelected): RecyclerView.Adapter<Device
     }
 
     interface OnDeviceSelected{
-        fun onDeviceSelected(device: HRDeviceRef)
+        fun onDeviceSelected(device: RxBleDevice)
     }
 }

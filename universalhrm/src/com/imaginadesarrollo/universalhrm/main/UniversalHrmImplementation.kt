@@ -1,6 +1,9 @@
 package com.imaginadesarrollo.universalhrm.main
 
+import android.annotation.SuppressLint
+import android.annotation.TargetApi
 import android.os.Handler
+import android.os.ParcelUuid
 import android.preference.PreferenceManager
 import android.util.Log
 import com.imaginadesarrollo.universalhrm.HrmCallbackMethods
@@ -9,6 +12,12 @@ import com.imaginadesarrollo.universalhrm.manager.HRDeviceRef
 import com.imaginadesarrollo.universalhrm.manager.HRManager
 import com.imaginadesarrollo.universalhrm.manager.HRProvider
 import com.imaginadesarrollo.universalhrm.ui.custom.DeviceDialogFragment
+import com.imaginadesarrollo.universalhrm.utils.LibUtils.convertFromInteger
+import com.polidea.rxandroidble2.RxBleClient
+import com.polidea.rxandroidble2.RxBleDevice
+import com.polidea.rxandroidble2.scan.ScanFilter
+import com.polidea.rxandroidble2.scan.ScanSettings
+import io.reactivex.schedulers.Schedulers
 import java.util.*
 
 internal class UniversalHrmImplementation(private val activity: android.support.v7.app.AppCompatActivity, private val caller: HrmCallbackMethods? = null): HrmImplementation, HRProvider.HRClient, DeviceAdapter.OnDeviceSelected {
@@ -43,7 +52,8 @@ internal class UniversalHrmImplementation(private val activity: android.support.
     }
 
     override fun scan() {
-        scanAction()
+        //scanAction()
+        startRxScan()
     }
 
     override fun connect() {connect2()}
@@ -51,7 +61,7 @@ internal class UniversalHrmImplementation(private val activity: android.support.
     override fun disconnect() {
         if(::hrProvider.isInitialized){
             Log.d(TAG, hrProvider.providerName + ".disconnect()")
-            stopTimer()
+            //stopTimer()
             hrProvider.disconnect()
             callback.onDeviceDisconnected()
         }
@@ -161,7 +171,7 @@ internal class UniversalHrmImplementation(private val activity: android.support.
 
     private fun connect2() { // or reconnect
         // TODO add feedback. Procesing...
-        stopTimer()
+        //stopTimer()
         if (!::hrProvider.isInitialized || selectedHr?.address.isNullOrBlank()) {
             return
         }
@@ -199,7 +209,7 @@ internal class UniversalHrmImplementation(private val activity: android.support.
 
     }
 
-    private var hrReader: Timer? = null
+  /*  private var hrReader: Timer? = null
     private fun startTimer() {
         hrReader = Timer().apply {
             scheduleAtFixedRate(object : TimerTask() {
@@ -220,7 +230,7 @@ internal class UniversalHrmImplementation(private val activity: android.support.
             purge()
         }
         hrReader = null
-    }
+    }*/
 
     private fun readHR() {
         if (hrProviderSelected == true && ::hrProvider.isInitialized) {
@@ -230,15 +240,13 @@ internal class UniversalHrmImplementation(private val activity: android.support.
                     hrValue = it.hrValue
 
                 callback.setHeartRateValue(hrValue.toInt())
-            } ?: kotlin.run {
-                reconnect()
-            }
+            } ?: run { reconnect() }
         }
     }
 
     private fun scanAction() {
         clear()
-        stopTimer()
+        //stopTimer()
 
         close()
         mIsScanning = true
@@ -275,9 +283,9 @@ internal class UniversalHrmImplementation(private val activity: android.support.
     }
 
     override fun onScanResult(device: HRDeviceRef) {
-        Log.d(TAG, (hrProvider.providerName + "::onScanResult(" + device.address + ", "
+        /*Log.d(TAG, (hrProvider.providerName + "::onScanResult(" + device.address + ", "
                 + device.name + ")"))
-        deviceAdapter.addDevice(device)
+        deviceAdapter.addDevice(device)*/
     }
 
     override fun onConnectResult(connectOK: Boolean) {
@@ -292,7 +300,7 @@ internal class UniversalHrmImplementation(private val activity: android.support.
                 val level = hrProvider.batteryLevel
                 callback.setBatteryLevel(level)
             }
-            startTimer()
+            //startTimer()
         }
     }
 
@@ -311,9 +319,91 @@ internal class UniversalHrmImplementation(private val activity: android.support.
         Log.d(TAG, "$src?.name: $msg?")
     }
 
-    override fun onDeviceSelected(device: HRDeviceRef) {
+    /*verride fun onDeviceSelected(device: HRDeviceRef) {
         customBuilder.dismiss()
         selectedHr = device
         connect2()
+    }*/
+
+
+    /**
+     *
+     *  New code with Rx
+     *
+     */
+    val rxBleClient by lazy { RxBleClient.create(activity) }
+
+    val HRP_SERVICE = UUID
+            //.fromString("0000180D-0000-0000-0000-000000000000")
+            .fromString("0000180D-0000-1000-8000-00805f9b34fb")
+    val BATTERY_SERVICE = UUID
+            .fromString("0000180f-0000-1000-8000-00805f9b34fb")
+    val FIRMWARE_REVISON_UUID = UUID
+            .fromString("00002a26-0000-1000-8000-00805f9b34fb")
+    val DIS_UUID = UUID
+            .fromString("0000180a-0000-1000-8000-00805f9b34fb")
+    val BATTERY_LEVEL_CHARAC = UUID
+            .fromString("00002A19-0000-1000-8000-00805f9b34fb")
+    val CCC = UUID
+            .fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+    val HEART_RATE_MEASUREMENT_CHARAC = UUID
+            .fromString("00002A37-0000-1000-8000-00805f9b34fb")
+
+    val UNIVERSAL_HRP_SERVICE = convertFromInteger(0x180D)
+    val HEART_RATE_MEASUREMENT_CHAR_UUID = convertFromInteger(0x2A37)
+
+    @SuppressLint("CheckResult")
+    @TargetApi(23)
+    private fun startRxScan() {
+        val scanSettings = ScanSettings.Builder()
+               /* .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)*/
+                .build()
+
+        val scanFilter = ScanFilter.Builder()
+                .setServiceUuid(ParcelUuid(UNIVERSAL_HRP_SERVICE))
+                .build()
+
+        rxBleClient.scanBleDevices(scanSettings, scanFilter)
+                .doOnSubscribe { customBuilder.show(activity.supportFragmentManager, "dialog") }
+                .doOnError { Log.e(TAG, it.message) }
+                .subscribe{ scanResult -> deviceAdapter.addDevice(scanResult.bleDevice) }
+    }
+
+    override fun onDeviceSelected(device: RxBleDevice) {
+        rxBleClient.getBleDevice(device.macAddress)
+                .establishConnection(true)
+                .flatMap { it.setupNotification(HEART_RATE_MEASUREMENT_CHARAC) }
+                .doOnSubscribe { customBuilder.dismiss() }
+                .subscribe { emitter ->
+                    emitter.subscribeOn(Schedulers.io())
+                            .observeOn(Schedulers.io())
+                            .doOnError { it.printStackTrace() }
+                            .doOnComplete { Log.e(TAG, "Completed") }
+                            .subscribe { characteristicValue ->
+
+                                Log.d(TAG, "Charactaristic value: $characteristicValue")
+                            }
+                }
     }
 }
+
+
+/*.flatMap { rxBleConnection -> Observable
+                  .interval(1, TimeUnit.SECONDS)
+                  .flatMapSingle {  rxBleConnection.readCharacteristic(HEART_RATE_MEASUREMENT_CHARAC)}
+          }*/
+
+/*.flatMapSingle { it.discoverServices() }
+        .flatMap { it.getCharacteristic(HRP_SERVICE, HEART_RATE_MEASUREMENT_CHARAC).toObservable() }
+        .map { characteristic ->
+            Observable
+                    .interval(1, TimeUnit.SECONDS)
+                    .flatMapSingle { Single.create<Byte> { characteristic.value } }
+                    .subscribe {
+
+                    }
+
+        }*/
+
