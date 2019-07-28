@@ -12,12 +12,15 @@ import com.imaginadesarrollo.universalhrm.manager.HRDeviceRef
 import com.imaginadesarrollo.universalhrm.manager.HRManager
 import com.imaginadesarrollo.universalhrm.manager.HRProvider
 import com.imaginadesarrollo.universalhrm.ui.custom.DeviceDialogFragment
+import com.imaginadesarrollo.universalhrm.utils.HrUtils
 import com.imaginadesarrollo.universalhrm.utils.LibUtils.convertFromInteger
 import com.polidea.rxandroidble2.RxBleClient
 import com.polidea.rxandroidble2.RxBleDevice
 import com.polidea.rxandroidble2.scan.ScanFilter
 import com.polidea.rxandroidble2.scan.ScanSettings
+import io.reactivex.Observable
 import io.reactivex.schedulers.Schedulers
+
 
 internal class UniversalHrmImplementation(private val activity: android.support.v7.app.AppCompatActivity, private val caller: HrmCallbackMethods? = null): HrmImplementation, HRProvider.HRClient, DeviceAdapter.OnDeviceSelected {
 
@@ -335,6 +338,8 @@ internal class UniversalHrmImplementation(private val activity: android.support.
 
     val UNIVERSAL_HRP_SERVICE = convertFromInteger(0x180D)
     val HEART_RATE_MEASUREMENT_CHAR_UUID = convertFromInteger(0x2A37)
+    val BATTERY_LEVEL_SERVICE = convertFromInteger(0x180F)
+    val BATTERY_LEVEL_CHAR_UUID = convertFromInteger(0x2A19)
 
     @SuppressLint("CheckResult")
     @TargetApi(23)
@@ -355,17 +360,37 @@ internal class UniversalHrmImplementation(private val activity: android.support.
     }
 
     override fun onDeviceSelected(device: RxBleDevice) {
+        callback.setHeartRateMonitorName(device.name ?: "")
+        callback.setHeartRateMonitorAddress(device.macAddress)
+        callback.setHeartRateMonitorProviderName("Bluetooth")
+
+
+        /*client.flatMapSingle { it.readCharacteristic(BATTERY_LEVEL_CHAR_UUID) }
+                .subscribe {
+                    val batteryLevel = it[0].toInt()
+                    activity.runOnUiThread { callback.setBatteryLevel(batteryLevel) }
+                }*/
+
+
+
         rxBleClient.getBleDevice(device.macAddress)
                 .establishConnection(true)
                 .flatMap { it.setupNotification(HEART_RATE_MEASUREMENT_CHAR_UUID) }
-                .doOnSubscribe {customBuilder.dismiss() }
+                .doOnSubscribe {
+                    customBuilder.dismiss()
+                    callback.onDeviceConnected()
+                }
+                .doOnComplete { callback.onDeviceDisconnected() }
+                .onErrorReturn { Observable.empty() } // handle error
                 .subscribe { emitter ->
                     emitter.subscribeOn(Schedulers.io())
+                            .map { HrUtils.decode(it) }
                             .observeOn(Schedulers.io())
-                            .doOnError { it.printStackTrace() }
-                            .doOnComplete { Log.e(TAG, "Completed") }
-                            .subscribe { characteristicValue ->
-                                Log.d(TAG, "Charactaristic value: $characteristicValue")
+                            .onErrorReturn { 0 }
+                            .subscribe { hrValue ->
+                                activity.runOnUiThread { // Workaround to be able to post on UI.
+                                    callback.setHeartRateValue(hrValue)
+                                }
                             }
                 }
     }
